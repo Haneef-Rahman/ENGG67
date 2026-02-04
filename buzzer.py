@@ -1,3 +1,4 @@
+import time
 import pigpio
 
 BUZZER_GPIO = 13       # BCM pin number
