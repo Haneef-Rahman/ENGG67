@@ -34,6 +34,12 @@ def pattern(beeps: int = 2, on_ms: int = 100, off_ms: int = 150) -> None:
         beep(on_ms)
         time.sleep(off_ms / 1000)
 
+def alarm(duration_ms: int = 1000) -> None:
+    """Sound the buzzer continuously for `duration_ms`."""
+    buzzer_on()
+    time.sleep(duration_ms / 1000)
+    buzzer_off()
+
 
 """
 demo when run directly
