@@ -7,10 +7,11 @@ except ImportError:
 import time
 import numpy as np
 import smbus2
-import Adafruit_ADS1x15
-import adafruit_bmp
+import Adafruit_ADS1x15 as ADS1115
+import adafruit_bmp as BMP180
 import ENS160
-import MQ_2_7_138
-import adafruit_sht31d
+import MQ_2_7_138 as MQS
+import adafruit_sht31d as SHT31D
 import pypms
-import serial
+import pyserial
+import RPi.GPIO as GPIO
