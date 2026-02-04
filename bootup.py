@@ -14,5 +14,6 @@ def bootup_sequence():
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pypms"])
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyserial"])
         subprocess.check_call([sys.executable, "-m", "pip", "install", "RPi.GPIO"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pigpio"])
     except:
         pass  # Library already installed
