@@ -29,12 +29,12 @@ class hardware:
 
     def __analyze_data(self,data):
         #placeholder conditions
-        if "nominal":
-            next_state = 1
+        if "hazardous":
+            next_state = 3
         elif "suboptimal":
             next_state = 2
         else:
-            next_state = 3
+            next_state = 1
 
         return next_state
     
