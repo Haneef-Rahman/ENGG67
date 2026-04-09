@@ -310,7 +310,7 @@ def main() -> None:
 
         cycle = 1
         while True:
-            fan_driver.set_duty(100)
+            fan_driver.set_duty(0)
             status_leds.blink("blue", on_time=0.3, off_time=0.3, n=None, background=True)
 
             try:
