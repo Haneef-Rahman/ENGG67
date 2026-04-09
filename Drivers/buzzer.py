@@ -17,7 +17,7 @@ from gpiozero import OutputDevice
 
 class buzzer:
     def __init__(self, pin=21):
-        self.device = OutputDevice(pin, active_high=False, initial_value=False)
+        self.device = OutputDevice(pin, active_high=True, initial_value=False)
 
     def on(self):
         self.device.on()

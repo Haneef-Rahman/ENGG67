@@ -218,7 +218,7 @@ def set_status_led(status_leds: leds, status: str) -> None:
 
 
 def hold_status_for_60_seconds(status: str, alarm: buzzer) -> None:
-    for _ in range(60):
+    for _ in range(5):
         if status == "lethal":
             alarm.on()
             time.sleep(0.2)
@@ -287,11 +287,8 @@ def main() -> None:
         mq_sensor = mq()
         created_sensors.extend([sht_sensor, pms_sensor, ens_sensor, mq_sensor])
 
-        # Optional BMP180. Skipped if the driver file is not present.
-        bmp_sensor = None
-        if BMP180 is not None:
-            bmp_sensor = BMP180()
-            created_sensors.append(bmp_sensor)
+        bmp_sensor = BMP180()
+        created_sensors.append(bmp_sensor)
 
         fan_driver.set_duty(0)
         blink_all_once(status_leds)
@@ -301,8 +298,7 @@ def main() -> None:
         probe_once("yysd7/pms", pms_sensor, startup_errors)
         probe_once("ens160", ens_sensor, startup_errors)
         probe_once("mq", mq_sensor, startup_errors)
-        if bmp_sensor is not None:
-            probe_once("bmp180", bmp_sensor, startup_errors)
+        probe_once("bmp180", bmp_sensor, startup_errors)
 
         if startup_errors:
             write_error_file(startup_errors)
