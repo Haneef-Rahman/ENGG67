@@ -218,7 +218,7 @@ def set_status_led(status_leds: leds, status: str) -> None:
 
 
 def hold_status_for_60_seconds(status: str, alarm: buzzer) -> None:
-    for _ in range(5):
+    for _ in range(60):
         if status == "lethal":
             alarm.on()
             time.sleep(0.2)
@@ -310,7 +310,7 @@ def main() -> None:
 
         cycle = 1
         while True:
-            fan_driver.set_duty(0)
+            fan_driver.set_duty(30)
             status_leds.blink("blue", on_time=0.3, off_time=0.3, n=None, background=True)
 
             try:
@@ -347,6 +347,7 @@ def main() -> None:
             fan_driver.set_duty(70)
             hold_status_for_60_seconds(status, alarm)
             cycle += 1
+
 
     except KeyboardInterrupt:
         print("Stopped by user.")
