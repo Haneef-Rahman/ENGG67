@@ -46,7 +46,9 @@ class pms:
             if not self.valid(full_frame):
                 raise RuntimeError("Bad PMS frame checksum")
 
-            pm1_0, pm2_5, pm10 = struct.unpack(">HHH", frame[2:8])
+            # atmospheric values
+            pm1_0, pm2_5, pm10 = struct.unpack(">HHH", frame[8:14])
+
             return {
                 "pm1_0": pm1_0,
                 "pm2_5": pm2_5,
