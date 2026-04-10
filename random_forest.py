@@ -528,7 +528,9 @@ def boot_train(
     if X_val.shape[0] > 0:
         pred_val = rf.predict(X_val)
         mae = float(mean_absolute_error(y_val, pred_val))
-        rmse = float(mean_squared_error(y_val, pred_val, squared=False))
+
+        mse = mean_squared_error(y_val, pred_val)  # no squared kwarg
+        rmse = np.sqrt(mse)
         metrics = {
             "val_mae": mae,
             "val_rmse": rmse,
