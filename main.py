@@ -15,6 +15,8 @@ from Drivers.mqx import mq
 from Drivers.pms import pms
 from Drivers.sht31 import sht31
 
+from iaq_scoring import iaq_index
+
 # Optional: only used if Drivers/bmp180.py exists.
 try:
     from Drivers.bmp180 import bmp180 as BMP180  # type: ignore
