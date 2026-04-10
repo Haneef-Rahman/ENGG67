@@ -341,9 +341,9 @@ def main() -> None:
                     "co2": ens_data["eCO2"],
                     "mq2": mq_data["mq2"],
                     "tvoc": ens_data["TVOC"],
-                    "pm1": pms_data["pm1_0"],
-                    "pm25": pms_data["pm2_5"],
-                    "pm10": pms_data["pm10"]
+                    "pm1": pms_data["pm1_0"]/100,
+                    "pm25": pms_data["pm2_5"]/100,
+                    "pm10": pms_data["pm10"]/100
                 }
                 try:
                     packed = iaq_index(readings)
