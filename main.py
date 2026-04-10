@@ -112,7 +112,6 @@ def sample_sensor(sensor: Any, count: int = 5, interval: float = 1.0) -> dict[st
         samples.append(sensor.read())
         if i != count - 1:
             time.sleep(interval)
-
     return average_dicts(samples)
 
 
@@ -334,6 +333,8 @@ def main() -> None:
 
                 ens_data = sample_sensor(ens_sensor)
                 mq_data = sample_sensor(mq_sensor)
+
+                print(bmp_data, sht_data, pms_data, ens_data, mq_data)
 
                 row = flatten_readings(bmp_data, sht_data, pms_data, ens_data, mq_data)
                 readings = {
