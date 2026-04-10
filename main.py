@@ -155,7 +155,7 @@ def flatten_readings(
     row["eCO2"] = ens_data.get("eCO2")
     row["TVOC"] = ens_data.get("TVOC")
     row["mq2"] = mq_data.get("mq2")
-    row["CO"] = mq_data.get("mq7")
+    row["co"] = mq_data.get("mq7")
 
     return row
 
