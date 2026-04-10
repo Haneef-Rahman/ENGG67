@@ -64,9 +64,9 @@ def train_rf_once_at_boot() -> None:
         info = boot_train(
             CSV_PATH,
             # Use more rows if you have them; helps training stability
-            n_rows=400,
-            window=45,
-            horizon=15,
+            n_rows=180,
+            window=10,
+            horizon=5,
 
             # Save next to main.py explicitly
             save_dir=BASE_DIR,
