@@ -340,13 +340,13 @@ def main() -> None:
 
                 row = flatten_readings(bmp_data, sht_data, pms_data, ens_data, mq_data)
                 readings = {
-                    "co": mq_data["mq7"]/1.2,
+                    "co": mq_data["mq7"]/1.1,
                     "co2": ens_data["eCO2"],
                     "mq2": mq_data["mq2"],
                     "tvoc": ens_data["TVOC"],
-                    "pm1": pms_data["pm1_0"]/100,
-                    "pm25": pms_data["pm2_5"]/300,
-                    "pm10": pms_data["pm10"]/500
+                    "pm1": pms_data["pm1_0"]/80,
+                    "pm25": pms_data["pm2_5"]/250,
+                    "pm10": pms_data["pm10"]/400
                 }
                 try:
                     packed = iaq_index(readings)
