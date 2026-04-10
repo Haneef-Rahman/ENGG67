@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import csv
 import time
 from datetime import datetime
@@ -75,6 +76,8 @@ def append_csv(row: dict[str, Any]) -> None:
     with CSV_PATH.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
         writer.writerow(clean_row)
+        f.flush()
+        os.fsync(f.fileno())
 
 
 def blink_all_once(status_leds: leds) -> None:
