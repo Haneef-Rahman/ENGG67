@@ -46,7 +46,7 @@ WEIGHTS_OPTION_B: Dict[str, float] = {
 #
 # Condition requested: strictly ">" (not ">=").
 LETHAL_THRESHOLDS: Dict[str, float] = {
-    "co": 400.0,
+    "co": 10000.0,
     "co2": 30000.0,
     "mq2": 3000.0,
     "tvoc": 20000.0,
