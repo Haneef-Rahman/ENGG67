@@ -1,6 +1,6 @@
 # randomforest.py
 """
-RandomForest-based IAQ forecaster.
+RandomForest-based multi-target forecaster.
 
 This module provides two functions:
 
@@ -11,8 +11,15 @@ This module provides two functions:
     *main script* (the script that launched Python).
 
 - rf_predict(csv_path, ...):
-    Loads the saved model and predicts IAQ horizon-steps ahead using the most recent
+    Loads the saved model and predicts targets horizon-steps ahead using the most recent
     continuous segment with at least `window` rows.
+
+Targets (default):
+  - iaq
+  - temperature
+  - eCO2
+  - co
+  - pm2_5
 
 Assumptions / notes:
 - Your timestamps are *HKT* (Hong Kong Time). The CSV stores timestamps with no timezone
@@ -25,15 +32,6 @@ Dependencies:
 - pandas, numpy
 - scikit-learn
 - joblib
-
-Typical usage from your main.py:
-
-    from randomforest import boot_train, rf_predict
-
-    boot_train("data.csv")
-    pred = rf_predict("data.csv")
-    print(pred)
-
 """
 
 from __future__ import annotations
@@ -75,8 +73,18 @@ DEFAULT_META_FILENAME = "rf_meta.json"
 TIMESTAMP_COL = "timestamp"
 STATUS_COL = "status"
 
-# We forecast IAQ by default
-TARGET_COL = "iaq"
+# Default targets (multi-output)
+DEFAULT_TARGET_COLS: List[str] = ["iaq", "temperature", "eCO2", "co", "pm2_5"]
+
+# Optional aliases to tolerate common column naming differences.
+# If you want to be strict, you can remove this and require exact names.
+TARGET_ALIASES: Dict[str, List[str]] = {
+    "eCO2": ["eCO2", "eco2", "e_co2", "eCO₂"],
+    "pm2_5": ["pm2_5", "pm2.5", "pm25", "pm_2_5", "PM2_5", "PM2.5", "PM25"],
+    "iaq": ["iaq", "IAQ"],
+    "temperature": ["temperature", "temp", "Temp", "Temperature"],
+    "co": ["co", "CO"],
+}
 
 
 # -----------------------------
@@ -86,11 +94,6 @@ TARGET_COL = "iaq"
 def _default_save_dir() -> Path:
     """
     Save in the same directory as the *main* script that launched Python.
-
-    - If your app is started as: python main.py
-      then sys.argv[0] is main.py and we save next to it.
-
-    - If sys.argv[0] is empty or weird (rare), fall back to CWD.
     """
     try:
         argv0 = sys.argv[0]
@@ -104,10 +107,6 @@ def _default_save_dir() -> Path:
 def _tail_csv(csv_path: Union[str, Path], n_rows: int) -> pd.DataFrame:
     """
     Efficient-ish tail reader: returns a DataFrame containing the header + last n_rows.
-
-    This avoids reading unlimited data.csv into memory.
-
-    If file has fewer than n_rows, returns all rows.
     """
     csv_path = Path(csv_path)
 
@@ -117,30 +116,22 @@ def _tail_csv(csv_path: Union[str, Path], n_rows: int) -> pd.DataFrame:
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV not found: {csv_path}")
 
-    # Read from the end: keep last (n_rows + 1) lines (to be safe) plus header.
-    # Implementation: read full file lines only if small; otherwise do a backwards scan.
-    # For simplicity and robustness, we do a chunked backwards read.
     with csv_path.open("rb") as f:
         f.seek(0, os.SEEK_END)
         file_size = f.tell()
         if file_size == 0:
             return pd.DataFrame()
 
-        # First, read header line (from start)
+        # header
         f.seek(0)
         header = f.readline().decode("utf-8", errors="replace").strip("\n\r")
         if not header:
             return pd.DataFrame()
 
-        # Now read last lines
-        # We'll read blocks from end until we have enough newline-separated lines.
         block_size = 64 * 1024
         blocks: List[bytes] = []
         newlines = 0
         pos = file_size
-
-        # We want at least n_rows lines (excluding header).
-        # Add some cushion because of possible trailing newline.
         target_newlines = n_rows + 2
 
         while pos > 0 and newlines < target_newlines:
@@ -152,17 +143,13 @@ def _tail_csv(csv_path: Union[str, Path], n_rows: int) -> pd.DataFrame:
             newlines += data.count(b"\n")
 
         tail_bytes = b"".join(reversed(blocks))
-        # Split lines; keep last n_rows lines (non-empty)
         lines = tail_bytes.splitlines()
 
-        # Decode lines; remove possible header duplicates (in case the file was tiny and included header)
         decoded = [ln.decode("utf-8", errors="replace") for ln in lines if ln.strip() != b""]
         if not decoded:
             return pd.DataFrame(columns=header.split(","))
 
-        # If the header line appears inside the tail, drop it
         decoded = [ln for ln in decoded if ln.strip() != header.strip()]
-
         tail_lines = decoded[-n_rows:] if len(decoded) > n_rows else decoded
         csv_text = header + "\n" + "\n".join(tail_lines)
 
@@ -200,13 +187,11 @@ def _parse_and_clean(
     if drop_status and STATUS_COL in df.columns:
         df = df.drop(columns=[STATUS_COL])
 
-    # Parse timestamps (naive) -> localize -> convert UTC
     tz = _ensure_tzinfo(tz_name)
     ts = pd.to_datetime(df[TIMESTAMP_COL], errors="coerce")
     df = df.loc[~ts.isna()].copy()
     ts = ts.loc[~ts.isna()]
 
-    # Interpret naive timestamps as HKT, then convert to UTC for consistent diffs/sorting
     ts_hkt = ts.dt.tz_localize(tz)
     ts_utc = ts_hkt.dt.tz_convert("UTC")
     df["timestamp_hkt"] = ts_hkt
@@ -224,8 +209,7 @@ def _parse_and_clean(
     df["dt_seconds"] = df["timestamp_utc"].diff().dt.total_seconds()
     df["dt_seconds"] = df["dt_seconds"].fillna(0.0).clip(lower=0.0)
 
-    # Add simple cyclical time features in HKT (optional but often helpful)
-    # hour of day (0..23), day of week (0..6)
+    # cyclical time features in HKT
     h = df["timestamp_hkt"].dt.hour.astype(float)
     dow = df["timestamp_hkt"].dt.dayofweek.astype(float)
     df["hour_sin"] = np.sin(2.0 * np.pi * h / 24.0)
@@ -246,8 +230,6 @@ def _segment_continuous(
     Creates a segment_id that increases when:
     - dt_seconds > max_gap_seconds, or
     - cycle decreases (reset) if break_on_cycle_reset is True.
-
-    Returns df with segment_id column.
     """
     if df.empty:
         return df
@@ -257,12 +239,10 @@ def _segment_continuous(
 
     if break_on_cycle_reset and cycle_col in df.columns:
         cycle_diff = df[cycle_col].diff()
-        cycle_break = cycle_diff < 0
-        cycle_break = cycle_break.fillna(False)
+        cycle_break = (cycle_diff < 0).fillna(False)
     else:
         cycle_break = pd.Series(False, index=df.index)
 
-    # First row starts a segment
     first = pd.Series(False, index=df.index)
     first.iloc[0] = True
 
@@ -272,11 +252,53 @@ def _segment_continuous(
     return df
 
 
+def _resolve_target_cols(
+    df: pd.DataFrame,
+    requested: Sequence[str],
+) -> List[str]:
+    """
+    Resolves requested target names against df.columns, using TARGET_ALIASES.
+    Returns the *actual column names* that will be used (and saved in the model bundle).
+    """
+    cols = set(df.columns)
+    resolved: List[str] = []
+
+    for name in requested:
+        if name in cols:
+            resolved.append(name)
+            continue
+
+        # try aliases
+        aliases = TARGET_ALIASES.get(name, [])
+        hit = None
+        for a in aliases:
+            if a in cols:
+                hit = a
+                break
+
+        if hit is None:
+            raise ValueError(
+                f"Target column '{name}' not found in CSV. "
+                f"Tried aliases: {aliases}. Available columns: {sorted(df.columns)}"
+            )
+        resolved.append(hit)
+
+    # keep order, ensure uniqueness
+    out: List[str] = []
+    seen = set()
+    for c in resolved:
+        if c not in seen:
+            out.append(c)
+            seen.add(c)
+    return out
+
+
 @dataclass
 class SupervisedData:
     X: np.ndarray
-    y: np.ndarray
+    y: np.ndarray  # shape: (n_samples, n_targets)
     feature_names: List[str]
+    target_cols: List[str]
     sample_times_utc: np.ndarray  # datetime64[ns] (tz-naive but UTC-based values)
 
 
@@ -285,108 +307,109 @@ def _build_supervised(
     window: int,
     horizon: int,
     feature_cols: Sequence[str],
-    target_col: str = TARGET_COL,
+    target_cols: Sequence[str],
 ) -> SupervisedData:
     """
-    Builds supervised samples:
+    Builds supervised samples (multi-output):
+
       X[t] = flattened features for rows (t-window+1 ... t)
-      y[t] = target at row (t + horizon)
+      y[t] = targets at row (t + horizon)  -> vector length n_targets
 
     Only within each segment_id.
     """
+    target_cols = list(target_cols)
+
     if df.empty:
         return SupervisedData(
             X=np.zeros((0, 0), dtype=np.float32),
-            y=np.zeros((0,), dtype=np.float32),
+            y=np.zeros((0, len(target_cols)), dtype=np.float32),
             feature_names=[],
+            target_cols=target_cols,
             sample_times_utc=np.array([], dtype="datetime64[ns]"),
         )
 
     if "segment_id" not in df.columns:
         raise ValueError("df must have segment_id column (call _segment_continuous first).")
 
-    if target_col not in df.columns:
-        raise ValueError(f"Missing target_col: {target_col}")
-
     window = int(window)
     horizon = int(horizon)
     if window <= 0 or horizon <= 0:
         raise ValueError("window and horizon must be > 0")
 
-    # Ensure required feature columns exist
-    missing = [c for c in feature_cols if c not in df.columns]
-    if missing:
-        raise ValueError(f"Missing feature columns in data: {missing}")
+    # Ensure required columns exist
+    missing_feat = [c for c in feature_cols if c not in df.columns]
+    if missing_feat:
+        raise ValueError(f"Missing feature columns in data: {missing_feat}")
 
-    # We will generate feature names in a fixed order:
-    # lag 0 = most recent row (t), lag window-1 = oldest row (t-window+1)
+    missing_tgt = [c for c in target_cols if c not in df.columns]
+    if missing_tgt:
+        raise ValueError(f"Missing target columns in data: {missing_tgt}")
+
+    # Feature names: lag 0 = most recent row (t)
     feature_names: List[str] = []
     for lag in range(window - 1, -1, -1):
         for c in feature_cols:
             feature_names.append(f"{c}_lag{lag}")
 
     X_list: List[np.ndarray] = []
-    y_list: List[float] = []
+    y_list: List[np.ndarray] = []
     t_list: List[np.datetime64] = []
 
-    # For each segment, forward-fill missing numeric values within that segment
-    for seg_id, seg in df.groupby("segment_id", sort=True):
+    for _, seg in df.groupby("segment_id", sort=True):
         seg = seg.copy()
 
         # Forward fill numeric cols; do not fill timestamps
         fill_cols = [c for c in seg.columns if c not in (TIMESTAMP_COL, "timestamp_hkt", "timestamp_utc")]
         seg[fill_cols] = seg[fill_cols].ffill()
 
-        # Need enough rows
         if len(seg) < window + horizon:
             continue
 
-        # Extract for speed
-        seg_feat = seg.loc[:, feature_cols].to_numpy(dtype=np.float32, copy=False)
-        seg_target = seg.loc[:, target_col].to_numpy(dtype=np.float32, copy=False)
-
-        # timestamp_utc for sample time at end of window
+        seg_feat = seg.loc[:, feature_cols].to_numpy(dtype=np.float32, copy=False)          # (n, n_feat)
+        seg_targets = seg.loc[:, target_cols].to_numpy(dtype=np.float32, copy=False)       # (n, n_tgt)
         seg_time = seg["timestamp_utc"].dt.tz_convert("UTC").dt.tz_localize(None).to_numpy()
 
-        # Slide
-        # end_idx is index of last row in the input window (t)
         for end_idx in range(window - 1, len(seg) - horizon):
             start_idx = end_idx - window + 1
-            window_block = seg_feat[start_idx : end_idx + 1]  # shape (window, n_feat)
+            window_block = seg_feat[start_idx : end_idx + 1]  # (window, n_feat)
 
-            # If any NaNs remain after ffill, skip
             if np.isnan(window_block).any():
                 continue
 
-            x = window_block.reshape(-1)  # (window * n_feat,)
-            y = float(seg_target[end_idx + horizon])
-
-            if math.isnan(y):
+            y_vec = seg_targets[end_idx + horizon]  # (n_tgt,)
+            if np.isnan(y_vec).any():
                 continue
 
+            x = window_block.reshape(-1)  # (window * n_feat,)
             X_list.append(x)
-            y_list.append(y)
+            y_list.append(y_vec.astype(np.float32, copy=False))
             t_list.append(seg_time[end_idx])
 
     if not X_list:
         return SupervisedData(
             X=np.zeros((0, len(feature_names)), dtype=np.float32),
-            y=np.zeros((0,), dtype=np.float32),
+            y=np.zeros((0, len(target_cols)), dtype=np.float32),
             feature_names=feature_names,
+            target_cols=target_cols,
             sample_times_utc=np.array([], dtype="datetime64[ns]"),
         )
 
     X = np.vstack(X_list).astype(np.float32, copy=False)
-    y = np.array(y_list, dtype=np.float32)
+    y = np.vstack(y_list).astype(np.float32, copy=False)
     sample_times_utc = np.array(t_list, dtype="datetime64[ns]")
 
-    # Ensure chronological order (important for time split)
     order = np.argsort(sample_times_utc)
     X = X[order]
     y = y[order]
     sample_times_utc = sample_times_utc[order]
 
-    return SupervisedData(X=X, y=y, feature_names=feature_names, sample_times_utc=sample_times_utc)
+    return SupervisedData(
+        X=X,
+        y=y,
+        feature_names=feature_names,
+        target_cols=target_cols,
+        sample_times_utc=sample_times_utc,
+    )
 
 
 def _pick_feature_cols(df: pd.DataFrame) -> List[str]:
@@ -396,34 +419,75 @@ def _pick_feature_cols(df: pd.DataFrame) -> List[str]:
     We exclude:
     - raw 'timestamp' string column
     - timestamp_hkt / timestamp_utc (not numeric)
-    - target 'iaq' is INCLUDED as a lagged input feature (common & useful in forecasting).
-      (If you want to exclude it, remove it here.)
+    - segment_id
     """
     exclude = {TIMESTAMP_COL, "timestamp_hkt", "timestamp_utc", "segment_id"}
-    cols = []
+    cols: List[str] = []
     for c in df.columns:
         if c in exclude:
             continue
-        # Keep numeric columns (including engineered dt_seconds, hour_sin/cos, etc.)
         if pd.api.types.is_numeric_dtype(df[c]):
             cols.append(c)
 
-    # Ensure deterministic ordering (important for model consistency)
-    cols = sorted(cols)
+    cols = sorted(cols)  # deterministic
     return cols
 
 
-def _train_val_split_time(X: np.ndarray, y: np.ndarray, val_fraction: float = 0.2) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _train_val_split_time(
+    X: np.ndarray,
+    y: np.ndarray,
+    val_fraction: float = 0.2,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if X.shape[0] != y.shape[0]:
         raise ValueError("X and y length mismatch")
     n = X.shape[0]
     if n < 5:
         # too small; treat all as train
-        return X, np.zeros((0, X.shape[1]), dtype=X.dtype), y, np.zeros((0,), dtype=y.dtype)
+        if y.ndim == 1:
+            y_empty = np.zeros((0,), dtype=y.dtype)
+        else:
+            y_empty = np.zeros((0, y.shape[1]), dtype=y.dtype)
+        return X, np.zeros((0, X.shape[1]), dtype=X.dtype), y, y_empty
+
     split = int(max(1, min(n - 1, round(n * (1.0 - val_fraction)))))
     X_train, X_val = X[:split], X[split:]
     y_train, y_val = y[:split], y[split:]
     return X_train, X_val, y_train, y_val
+
+
+def _metrics_multioutput(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    target_cols: Sequence[str],
+) -> Dict[str, Any]:
+    """
+    Returns per-target MAE/RMSE and macro-averages.
+    Avoids mean_squared_error(..., squared=False) for sklearn compatibility.
+    """
+    target_cols = list(target_cols)
+    k = y_true.shape[1]
+
+    mae_by: Dict[str, float] = {}
+    rmse_by: Dict[str, float] = {}
+
+    for j in range(k):
+        yt = y_true[:, j]
+        yp = y_pred[:, j]
+        mae = float(mean_absolute_error(yt, yp))
+        mse = mean_squared_error(yt, yp)  # no squared kwarg
+        rmse = float(np.sqrt(mse))
+        mae_by[target_cols[j]] = mae
+        rmse_by[target_cols[j]] = rmse
+
+    mae_macro = float(np.mean(list(mae_by.values()))) if mae_by else float("nan")
+    rmse_macro = float(np.mean(list(rmse_by.values()))) if rmse_by else float("nan")
+
+    return {
+        "val_mae_macro": mae_macro,
+        "val_rmse_macro": rmse_macro,
+        "val_mae_by_target": mae_by,
+        "val_rmse_by_target": rmse_by,
+    }
 
 
 # -----------------------------
@@ -442,6 +506,7 @@ def boot_train(
     model_filename: str = DEFAULT_MODEL_FILENAME,
     meta_filename: str = DEFAULT_META_FILENAME,
     save_dir: Optional[Union[str, Path]] = None,
+    target_cols: Optional[Sequence[str]] = None,
     # RF hyperparams
     n_estimators: int = 400,
     random_state: int = 42,
@@ -453,13 +518,7 @@ def boot_train(
     """
     Boot-trains a RandomForestRegressor using the *last n_rows* from csv_path.
 
-    Saves:
-      - model: <save_dir>/<model_filename>
-      - metadata: <save_dir>/<meta_filename>
-
-    Returns a dict with training info and validation metrics.
-
-    The saved model predicts IAQ at (t + horizon) using features from last `window` rows.
+    The saved model predicts multiple targets at (t + horizon) using features from last `window` rows.
     """
     t0 = time.time()
 
@@ -472,14 +531,12 @@ def boot_train(
     model_path = save_dir_path / model_filename
     meta_path = save_dir_path / meta_filename
 
-    # Read tail and clean
     raw = _tail_csv(csv_path, n_rows=n_rows)
     df = _parse_and_clean(raw, tz_name=tz_name, drop_status=True)
 
     if df.empty:
         raise ValueError("No usable rows after parsing timestamps.")
 
-    # Segment continuous runs
     df = _segment_continuous(
         df,
         max_gap_seconds=max_gap_seconds,
@@ -487,22 +544,23 @@ def boot_train(
         cycle_col="cycle",
     )
 
-    # Choose features
     feature_cols = _pick_feature_cols(df)
-    if TARGET_COL not in df.columns:
-        raise ValueError(f"Target column '{TARGET_COL}' not found in CSV data.")
+
+    requested_targets = list(target_cols) if target_cols is not None else list(DEFAULT_TARGET_COLS)
+    resolved_targets = _resolve_target_cols(df, requested_targets)
 
     if verbose:
         print(f"[boot_train] Rows (tail): {len(raw)} | usable: {len(df)}")
         print(f"[boot_train] Feature cols ({len(feature_cols)}): {feature_cols}")
+        print(f"[boot_train] Targets (requested): {requested_targets}")
+        print(f"[boot_train] Targets (resolved):  {resolved_targets}")
 
-    # Build supervised dataset
     sd = _build_supervised(
         df=df,
         window=window,
         horizon=horizon,
         feature_cols=feature_cols,
-        target_col=TARGET_COL,
+        target_cols=resolved_targets,
     )
 
     if sd.X.shape[0] < 10:
@@ -511,10 +569,8 @@ def boot_train(
             f"Need more continuous data. Try increasing n_rows or lowering window/horizon."
         )
 
-    # Train/val split (time-ordered)
     X_train, X_val, y_train, y_val = _train_val_split_time(sd.X, sd.y, val_fraction=0.2)
 
-    # Train model for validation
     rf = RandomForestRegressor(
         n_estimators=int(n_estimators),
         random_state=int(random_state),
@@ -524,26 +580,22 @@ def boot_train(
     )
     rf.fit(X_train, y_train)
 
-    metrics: Dict[str, Any] = {}
+    metrics: Dict[str, Any]
     if X_val.shape[0] > 0:
         pred_val = rf.predict(X_val)
-        mae = float(mean_absolute_error(y_val, pred_val))
-
-        mse = mean_squared_error(y_val, pred_val)  # no squared kwarg
-        rmse = np.sqrt(mse)
         metrics = {
-            "val_mae": mae,
-            "val_rmse": rmse,
             "val_n": int(X_val.shape[0]),
+            **_metrics_multioutput(y_val, pred_val, target_cols=sd.target_cols),
         }
     else:
         metrics = {
-            "val_mae": None,
-            "val_rmse": None,
             "val_n": 0,
+            "val_mae_macro": None,
+            "val_rmse_macro": None,
+            "val_mae_by_target": None,
+            "val_rmse_by_target": None,
         }
 
-    # Fit final model on all data (common practice after validation)
     rf_final = RandomForestRegressor(
         n_estimators=int(n_estimators),
         random_state=int(random_state),
@@ -553,7 +605,6 @@ def boot_train(
     )
     rf_final.fit(sd.X, sd.y)
 
-    # Save model bundle
     bundle = {
         "model": rf_final,
         "feature_names": sd.feature_names,
@@ -563,12 +614,11 @@ def boot_train(
         "tz_name": tz_name,
         "max_gap_seconds": float(max_gap_seconds),
         "break_on_cycle_reset": bool(break_on_cycle_reset),
-        "target_col": TARGET_COL,
+        "target_cols": list(sd.target_cols),  # NEW (multi-target)
         "trained_at_utc": pd.Timestamp.utcnow().isoformat(),
     }
     dump(bundle, model_path)
 
-    # Save metadata (human-readable)
     meta = {
         "model_path": str(model_path),
         "meta_path": str(meta_path),
@@ -580,7 +630,8 @@ def boot_train(
         "features_per_step": int(len(feature_cols)),
         "window": int(window),
         "horizon": int(horizon),
-        "target_col": TARGET_COL,
+        "target_cols": list(sd.target_cols),
+        "targets_n": int(len(sd.target_cols)),
         "tz_name": tz_name,
         "max_gap_seconds": float(max_gap_seconds),
         "break_on_cycle_reset": bool(break_on_cycle_reset),
@@ -624,14 +675,13 @@ def rf_predict(
     verbose: bool = False,
 ) -> Union[float, Dict[str, Any]]:
     """
-    Predicts IAQ at (t + horizon) using the most recent continuous data.
+    Predicts targets at (t + horizon) using the most recent continuous data.
 
-    - Loads saved model bundle (default path: same directory as main script).
-    - Reads the last n_rows from csv_path (default 400 for a better chance of finding a long segment).
-    - Builds features from the last `window` rows of the *most recent segment* that has enough data.
-    - Returns predicted IAQ (float), or if return_debug=True returns a dict with details.
+    Returns:
+      - If model has 1 target and return_debug=False: float (backward compatible)
+      - Otherwise: dict {target_name: prediction}
+      - If return_debug=True: dict with predictions + debug info
     """
-    # Resolve default model paths
     save_dir = _default_save_dir()
 
     if model_path is None:
@@ -654,8 +704,12 @@ def rf_predict(
     feature_cols = list(bundle["feature_cols"])
     feature_names = list(bundle["feature_names"])
 
-    # If caller passes tz_name/max_gap_seconds/break_on_cycle_reset, we honor them for parsing/segmenting.
-    # (Even if they differ from what the model was trained with.)
+    # Backward compatibility: old bundles used "target_col"
+    if "target_cols" in bundle and bundle["target_cols"] is not None:
+        target_cols = list(bundle["target_cols"])
+    else:
+        target_cols = [str(bundle.get("target_col", "iaq"))]
+
     raw = _tail_csv(csv_path, n_rows=n_rows)
     df = _parse_and_clean(raw, tz_name=tz_name, drop_status=True)
 
@@ -669,7 +723,6 @@ def rf_predict(
         cycle_col="cycle",
     )
 
-    # Ensure expected features exist (if new columns added later, we ignore them; if missing, error)
     missing = [c for c in feature_cols if c not in df.columns]
     if missing:
         raise ValueError(
@@ -677,7 +730,6 @@ def rf_predict(
             f"Available columns: {list(df.columns)}"
         )
 
-    # Choose the most recent segment with enough rows
     seg_ids = df["segment_id"].unique().tolist()
     seg_ids.sort()
     chosen_seg_id = None
@@ -695,21 +747,16 @@ def rf_predict(
             f"in one segment, but none found in last n_rows={n_rows}."
         )
 
-    # Forward-fill numeric values in the chosen segment
     fill_cols = [c for c in chosen_seg.columns if c not in (TIMESTAMP_COL, "timestamp_hkt", "timestamp_utc")]
     chosen_seg[fill_cols] = chosen_seg[fill_cols].ffill()
 
-    # Take the last `window` rows for input
     last_block = chosen_seg.iloc[-window:].copy()
-
-    # Build feature vector in the same flattening order used in training
     feat_mat = last_block.loc[:, feature_cols].to_numpy(dtype=np.float32, copy=False)
     if np.isnan(feat_mat).any():
         raise ValueError("Recent window contains NaNs even after forward-fill; cannot predict reliably.")
 
     x = feat_mat.reshape(-1).astype(np.float32, copy=False)
 
-    # Sanity check length
     expected_len = len(feature_names)
     if x.shape[0] != expected_len:
         raise RuntimeError(
@@ -717,19 +764,34 @@ def rf_predict(
             f"(window={window}, n_features_per_step={len(feature_cols)})"
         )
 
-    pred = float(model.predict(x.reshape(1, -1))[0])
+    pred_arr = model.predict(x.reshape(1, -1))
+    # pred_arr: shape (1, k) for multioutput, or (1,) / (1,1) depending on sklearn/version
+    pred_vec = np.asarray(pred_arr).reshape(1, -1)[0]
+
+    predictions: Dict[str, float] = {}
+    if len(target_cols) == pred_vec.shape[0]:
+        for i, name in enumerate(target_cols):
+            predictions[name] = float(pred_vec[i])
+    else:
+        # Fallback if model reports a different shape than expected
+        # (should not happen if trained with this module)
+        predictions = {"prediction": float(pred_vec[0])}
 
     if verbose:
         last_ts_hkt = last_block["timestamp_hkt"].iloc[-1]
         print(f"[rf_predict] Using segment_id={chosen_seg_id} with {len(chosen_seg)} rows.")
         print(f"[rf_predict] Last timestamp (HKT): {last_ts_hkt}")
-        print(f"[rf_predict] Predicting IAQ at horizon={horizon} steps ahead: {pred:.3f}")
+        print(f"[rf_predict] Predicting at horizon={horizon} steps ahead: {predictions}")
 
     if not return_debug:
-        return pred
+        # Back-compat: if single target, return float like the old version did
+        if len(predictions) == 1 and len(target_cols) == 1:
+            return float(next(iter(predictions.values())))
+        return predictions
 
     debug = {
-        "prediction_iaq": pred,
+        "predictions": predictions,
+        "target_cols": target_cols,
         "window": window,
         "horizon": horizon,
         "tz_name": tz_name,
@@ -747,12 +809,12 @@ def rf_predict(
 
 
 # -----------------------------
-# Optional CLI (does nothing unless executed directly)
+# Optional CLI
 # -----------------------------
 if __name__ == "__main__":
     import argparse
 
-    p = argparse.ArgumentParser(description="RandomForest IAQ forecaster (boot_train / rf_predict).")
+    p = argparse.ArgumentParser(description="RandomForest multi-target forecaster (boot_train / rf_predict).")
     p.add_argument("csv", help="Path to data.csv")
     p.add_argument("--train", action="store_true", help="Run boot_train")
     p.add_argument("--predict", action="store_true", help="Run rf_predict")

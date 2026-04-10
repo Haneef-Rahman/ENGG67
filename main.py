@@ -60,13 +60,19 @@ def train_rf_once_at_boot() -> None:
     Never call this inside the main loop.
     """
     try:
-        # Train ONCE at boot. This will overwrite yesterday's model.
         info = boot_train(
             CSV_PATH,
+
             # Use more rows if you have them; helps training stability
             n_rows=180,
+
+            # Make these match your real intent:
+            # If you want 15 steps ahead, set horizon=15.
             window=10,
-            horizon=5,
+            horizon=15,
+
+            # Explicit targets (optional; these are already the defaults in the new module)
+            target_cols=["iaq", "temperature", "eCO2", "co", "pm2_5"],
 
             # Save next to main.py explicitly
             save_dir=BASE_DIR,
@@ -75,17 +81,22 @@ def train_rf_once_at_boot() -> None:
 
             # Pi-friendly knobs (adjust if you want)
             n_estimators=200,
-            n_jobs=1,          # safer on Pi; change to -1 if you want all cores
+            n_jobs=1,
             verbose=False,
         )
-        val = info.get("validation", {})
+
+        val = info.get("validation", {}) or {}
+        # NOTE: validation keys changed in the multi-target version
         print(
             f"[RF] trained once at boot. "
-            f"val_mae={val.get('val_mae')}, val_rmse={val.get('val_rmse')}, samples={info.get('samples')}"
+            f"val_mae_macro={val.get('val_mae_macro')}, "
+            f"val_rmse_macro={val.get('val_rmse_macro')}, "
+            f"val_n={val.get('val_n')}, "
+            f"samples={info.get('samples')}, "
+            f"targets={info.get('target_cols')}"
         )
+
     except Exception as e:
-        # If training fails (common if not enough usable history), we DO NOT retry later.
-        # We either continue with an existing model (if it exists), or run without predictions.
         if RF_MODEL_PATH.exists():
             print(f"[RF] boot training failed, keeping existing model: {e}")
         else:
@@ -411,17 +422,31 @@ def main() -> None:
 
                 # ---- Predict only (never train here) ----
                 try:
-                    pred_iaq = rf_predict(
+                    preds = rf_predict(
                         CSV_PATH,
                         model_path=RF_MODEL_PATH,
                         meta_path=RF_META_PATH,
-                        n_rows=400,            # read enough recent rows to find a full window
+                        n_rows=400,
                         return_debug=False,
                         verbose=False,
                     )
-                    print(f"[RF] predicted IAQ (15 steps ahead): {pred_iaq:.2f}")
+
+                    # preds is expected to be a dict like:
+                    # {"iaq": ..., "temperature": ..., "eCO2": ..., "co": ..., "pm2_5": ...}
+                    if isinstance(preds, dict):
+                        print(
+                            "[RF] predicted (horizon steps ahead): "
+                            f"IAQ={preds.get('iaq'):.2f}, "
+                            f"T={preds.get('temperature'):.2f}, "
+                            f"eCO2={preds.get('eCO2'):.2f}, "
+                            f"CO={preds.get('co'):.2f}, "
+                            f"PM2.5={preds.get('pm2_5'):.2f}"
+                        )
+                    else:
+                        # Backward-compat if model is single-target and returns float
+                        print(f"[RF] predicted IAQ (horizon steps ahead): {float(preds):.2f}")
+
                 except Exception as e:
-                    # If boot training failed and no model exists, you'll land here every time.
                     print(f"[RF] prediction skipped/failed: {e}")
 
             except Exception as e:
