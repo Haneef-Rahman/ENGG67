@@ -35,7 +35,6 @@ CSV_FIELDS = [
     "timestamp",
     "cycle",
     "status",
-    "notes",
     "iaq",
     "temperature",
     "pressure",
@@ -356,7 +355,7 @@ def main() -> None:
                 row["timestamp"] = now_string()
                 row["cycle"] = cycle
                 row["status"] = status
-                row["notes"] = notes
+                #row["notes"] = notes
                 append_csv(row)
 
                 print(f"[{row['timestamp']}] cycle={cycle} status={status}")
