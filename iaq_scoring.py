@@ -250,11 +250,11 @@ def iaq_bucket_from_float(iaq: float) -> str:
       201–500 severe
     """
     x = float(iaq)
-    if x <= 100.0:
-        return "excellent"
     if x <= 200.0:
-        return "moderate"
+        return "excellent"
     if x <= 350.0:
+        return "moderate"
+    if x <= 400.0:
         return "suboptimal"
     return "severe"
 
