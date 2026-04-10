@@ -351,6 +351,7 @@ def main() -> None:
                 packed, notes = iaq_index(readings)
                 status = packed["bucket"]
                 iaq = packed["iaq"]
+                row["iaq"] = iaq
                 row["timestamp"] = now_string()
                 row["cycle"] = cycle
                 row["status"] = status
