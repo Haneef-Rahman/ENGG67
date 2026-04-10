@@ -426,7 +426,7 @@ def main() -> None:
                         CSV_PATH,
                         model_path=RF_MODEL_PATH,
                         meta_path=RF_META_PATH,
-                        n_rows=400,
+                        n_rows=60,
                         return_debug=False,
                         verbose=False,
                     )
