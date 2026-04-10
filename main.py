@@ -347,7 +347,7 @@ def main() -> None:
                     "pm10": pms_data["pm10"]
                 }
                 try:
-                    packed, notes = iaq_index(readings)
+                    packed = iaq_index(readings)
                 except:
                     print("Culprit")
                 status = packed["bucket"]
