@@ -392,7 +392,7 @@ def main() -> None:
                 ens_data = sample_sensor(ens_sensor)
                 mq_data = sample_sensor(mq_sensor)
 
-                print(bmp_data, sht_data, pms_data, ens_data, mq_data)
+                #print(bmp_data, sht_data, pms_data, ens_data, mq_data)
 
                 row = flatten_readings(bmp_data, sht_data, pms_data, ens_data, mq_data)
                 readings = {
@@ -416,6 +416,7 @@ def main() -> None:
                 row["status"] = status
                 #row["notes"] = notes
                 append_csv(row)
+                print(row)
 
                 print(f"[{row['timestamp']}] cycle={cycle} status={status}")
                 set_status_led(status_leds, status)
