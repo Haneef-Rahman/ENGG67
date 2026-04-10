@@ -17,6 +17,7 @@ from Drivers.pms import pms
 from Drivers.sht31 import sht31
 
 from iaq_scoring import iaq_index
+from random_forest import boot_train, rf_predict
 
 # Optional: only used if Drivers/bmp180.py exists.
 try:
@@ -31,6 +32,9 @@ except Exception:
 BASE_DIR = Path(__file__).resolve().parent
 CSV_PATH = BASE_DIR / "data.csv"
 ERROR_PATH = BASE_DIR / "error.txt"
+
+RF_MODEL_PATH = BASE_DIR / "rf_model.joblib"
+RF_META_PATH = BASE_DIR / "rf_meta.json"
 
 CSV_FIELDS = [
     "timestamp",
@@ -48,6 +52,44 @@ CSV_FIELDS = [
     "mq2",
     "co",
 ]
+
+
+def train_rf_once_at_boot() -> None:
+    """
+    Train exactly once when the program boots.
+    Never call this inside the main loop.
+    """
+    try:
+        # Train ONCE at boot. This will overwrite yesterday's model.
+        info = boot_train(
+            CSV_PATH,
+            # Use more rows if you have them; helps training stability
+            n_rows=400,
+            window=45,
+            horizon=15,
+
+            # Save next to main.py explicitly
+            save_dir=BASE_DIR,
+            model_filename=RF_MODEL_PATH.name,
+            meta_filename=RF_META_PATH.name,
+
+            # Pi-friendly knobs (adjust if you want)
+            n_estimators=200,
+            n_jobs=1,          # safer on Pi; change to -1 if you want all cores
+            verbose=False,
+        )
+        val = info.get("validation", {})
+        print(
+            f"[RF] trained once at boot. "
+            f"val_mae={val.get('val_mae')}, val_rmse={val.get('val_rmse')}, samples={info.get('samples')}"
+        )
+    except Exception as e:
+        # If training fails (common if not enough usable history), we DO NOT retry later.
+        # We either continue with an existing model (if it exists), or run without predictions.
+        if RF_MODEL_PATH.exists():
+            print(f"[RF] boot training failed, keeping existing model: {e}")
+        else:
+            print(f"[RF] boot training failed and no model exists; predictions disabled: {e}")
 
 
 def now_string() -> str:
@@ -321,6 +363,9 @@ def main() -> None:
             while True:
                 time.sleep(1)
 
+        # ---- Train RandomForest ONCE at boot (do not do this inside the loop) ----
+        train_rf_once_at_boot()
+
         cycle = 1
         while True:
             fan_driver.set_duty(30)
@@ -363,6 +408,21 @@ def main() -> None:
 
                 print(f"[{row['timestamp']}] cycle={cycle} status={status}")
                 set_status_led(status_leds, status)
+
+                # ---- Predict only (never train here) ----
+                try:
+                    pred_iaq = rf_predict(
+                        CSV_PATH,
+                        model_path=RF_MODEL_PATH,
+                        meta_path=RF_META_PATH,
+                        n_rows=400,            # read enough recent rows to find a full window
+                        return_debug=False,
+                        verbose=False,
+                    )
+                    print(f"[RF] predicted IAQ (15 steps ahead): {pred_iaq:.2f}")
+                except Exception as e:
+                    # If boot training failed and no model exists, you'll land here every time.
+                    print(f"[RF] prediction skipped/failed: {e}")
 
             except Exception as e:
                 error_message = f"[{now_string()}] Runtime cycle {cycle}: {e}"
