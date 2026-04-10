@@ -283,8 +283,8 @@ def set_status_led(status_leds: leds, status: str) -> None:
         status_leds.blink("red", on_time=0.5, off_time=0.5, n=None, background=True)
 
 
-def hold_status_for_60_seconds(status: str, alarm: buzzer) -> None:
-    for _ in range(60):
+def hold_status_for_30_seconds(status: str, alarm: buzzer) -> None:
+    for _ in range(30):
         if status == "lethal":
             alarm.on()
             time.sleep(0.2)
@@ -461,7 +461,7 @@ def main() -> None:
                 continue
 
             fan_driver.set_duty(70)
-            hold_status_for_60_seconds(status, alarm)
+            hold_status_for_30_seconds(status, alarm)
             cycle += 1
 
 
