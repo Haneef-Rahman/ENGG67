@@ -36,7 +36,6 @@ CSV_FIELDS = [
     "timestamp",
     "cycle",
     "status",
-    "notes",
     "iaq",
     "temperature",
     "pressure",
@@ -115,7 +114,6 @@ def sample_sensor(sensor: Any, count: int = 5, interval: float = 1.0) -> dict[st
         samples.append(sensor.read())
         if i != count - 1:
             time.sleep(interval)
-
     return average_dicts(samples)
 
 
@@ -159,7 +157,7 @@ def flatten_readings(
     row["eCO2"] = ens_data.get("eCO2")
     row["TVOC"] = ens_data.get("TVOC")
     row["mq2"] = mq_data.get("mq2")
-    row["CO"] = mq_data.get("mq7")
+    row["co"] = mq_data.get("mq7")
 
     return row
 
@@ -338,24 +336,29 @@ def main() -> None:
                 ens_data = sample_sensor(ens_sensor)
                 mq_data = sample_sensor(mq_sensor)
 
+                print(bmp_data, sht_data, pms_data, ens_data, mq_data)
+
                 row = flatten_readings(bmp_data, sht_data, pms_data, ens_data, mq_data)
                 readings = {
                     "co": mq_data["mq7"],
                     "co2": ens_data["eCO2"],
                     "mq2": mq_data["mq2"],
                     "tvoc": ens_data["TVOC"],
-                    "pm1": pms_data["pm1_0"],
-                    "pm25": pms_data["pm2_5"],
-                    "pm10": pms_data["pm10"]
+                    "pm1": pms_data["pm1_0"]/100,
+                    "pm25": pms_data["pm2_5"]/100,
+                    "pm10": pms_data["pm10"]/100
                 }
-                packed, notes = iaq_index(readings)
+                try:
+                    packed = iaq_index(readings)
+                except:
+                    print("Culprit")
                 status = packed["bucket"]
                 iaq = packed["iaq"]
                 row["iaq"] = iaq
                 row["timestamp"] = now_string()
                 row["cycle"] = cycle
                 row["status"] = status
-                row["notes"] = notes
+                #row["notes"] = notes
                 append_csv(row)
 
                 print(f"[{row['timestamp']}] cycle={cycle} status={status}")
