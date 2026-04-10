@@ -25,12 +25,12 @@ BP = Tuple[float, float, float, float]
 # ----------------------------
 WEIGHTS_OPTION_B: Dict[str, float] = {
     "co":   1.00,
-    "co2":  0.88,
-    "mq2":  0.77,
-    "tvoc": 0.67,
-    "pm25": 0.55,
-    "pm10": 0.50,
-    "pm1":  0.48,
+    "co2":  0.98,
+    "mq2":  0.95,
+    "tvoc": 0.92,
+    "pm25": 0.85,
+    "pm10": 0.80,
+    "pm1":  0.67,
 }
 
 

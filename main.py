@@ -128,6 +128,7 @@ def flatten_readings(
 ) -> dict[str, Any]:
     row: dict[str, Any] = {}
 
+    """
     if bmp_data:
         row["bmp180_temperature"] = bmp_data.get("temperature")
         row["bmp180_pressure"] = bmp_data.get("pressure")
@@ -147,10 +148,22 @@ def flatten_readings(
 
     row["mq2"] = mq_data.get("mq2")
     row["mq7"] = mq_data.get("mq7")
+    """
+    if bmp_data:
+        row["pressure"] = bmp_data.get("pressure")
+    row["temperature"] = sht_data.get("temperature")
+    row["humidity"] = sht_data.get("humidity")
+    row["pm1_0"] = pms_data.get("pm1_0")
+    row["pm2_5"] = pms_data.get("pm2_5")
+    row["pm10"] = pms_data.get("pm10")
+    row["eCO2"] = ens_data.get("eCO2")
+    row["TVOC"] = ens_data.get("TVOC")
+    row["mq2"] = mq_data.get("mq2")
+    row["CO"] = mq_data.get("mq7")
 
     return row
 
-
+"""
 def classify_iaq(row: dict[str, Any]) -> tuple[str, str]:
     # Simple placeholder logic.
     # This is intentionally easy to edit later.
@@ -204,7 +217,7 @@ def classify_iaq(row: dict[str, Any]) -> tuple[str, str]:
 
     statuses = ["excellent", "moderate", "suboptimal", "severe", "lethal"]
     return statuses[level], ", ".join(notes)
-
+"""
 
 def set_status_led(status_leds: leds, status: str) -> None:
     if status == "excellent":
@@ -326,7 +339,18 @@ def main() -> None:
                 mq_data = sample_sensor(mq_sensor)
 
                 row = flatten_readings(bmp_data, sht_data, pms_data, ens_data, mq_data)
-                status, notes = classify_iaq(row)
+                readings = {
+                    "co": mq_data["mq7"],
+                    "co2": ens_data["eCO2"],
+                    "mq2": mq_data["mq2"],
+                    "tvoc": ens_data["TVOC"],
+                    "pm1": pms_data["pm1_0"],
+                    "pm25": pms_data["pm2_5"],
+                    "pm10": pms_data["pm10"]
+                }
+                packed, notes = iaq_index(readings)
+                status = packed["bucket"]
+                iaq = packed["iaq"]
                 row["timestamp"] = now_string()
                 row["cycle"] = cycle
                 row["status"] = status
