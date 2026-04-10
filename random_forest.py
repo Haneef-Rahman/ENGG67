@@ -152,6 +152,7 @@ def _tail_csv(csv_path: Union[str, Path], n_rows: int) -> pd.DataFrame:
         decoded = [ln for ln in decoded if ln.strip() != header.strip()]
         tail_lines = decoded[-n_rows:] if len(decoded) > n_rows else decoded
         csv_text = header + "\n" + "\n".join(tail_lines)
+        print(tail_lines)
 
     return pd.read_csv(io.StringIO(csv_text))
 
