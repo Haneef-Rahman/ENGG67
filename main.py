@@ -396,7 +396,7 @@ def main() -> None:
 
                 row = flatten_readings(bmp_data, sht_data, pms_data, ens_data, mq_data)
                 readings = {
-                    "co": mq_data["mq7"]/1.2,
+                    "co": mq_data["mq7"]/1.5,
                     "co2": ens_data["eCO2"],
                     "mq2": mq_data["mq2"],
                     "tvoc": ens_data["TVOC"],
