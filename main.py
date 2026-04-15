@@ -64,12 +64,12 @@ def train_rf_once_at_boot() -> None:
             CSV_PATH,
 
             # Use more rows if you have them; helps training stability
-            n_rows=180,
+            n_rows=1000,
 
             # Make these match your real intent:
             # If you want 15 steps ahead, set horizon=15.
-            window=10,
-            horizon=15,
+            window=60,
+            horizon=30,
 
             # Explicit targets (optional; these are already the defaults in the new module)
             target_cols=["iaq", "temperature", "eCO2", "co", "pm2_5"],
