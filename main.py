@@ -68,8 +68,8 @@ def train_rf_once_at_boot() -> None:
 
             # Make these match your real intent:
             # If you want 15 steps ahead, set horizon=15.
-            window=45,
-            horizon=30,
+            window=30,
+            horizon=15,
 
             # Explicit targets (optional; these are already the defaults in the new module)
             target_cols=["iaq", "temperature", "eCO2", "co", "pm2_5"],
