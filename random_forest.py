@@ -502,7 +502,7 @@ def boot_train(
     window: int = 60,
     horizon: int = 30,
     tz_name: str = DEFAULT_TZ_NAME,
-    max_gap_seconds: float = 100.0,
+    max_gap_seconds: float = 1000.0,
     break_on_cycle_reset: bool = True,
     model_filename: str = DEFAULT_MODEL_FILENAME,
     meta_filename: str = DEFAULT_META_FILENAME,
