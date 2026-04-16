@@ -446,16 +446,13 @@ def main() -> None:
                     # {"iaq": ..., "temperature": ..., "eCO2": ..., "co": ..., "pm2_5": ...}
                     if isinstance(preds, dict):
                         print(
-                            "[RF] predicted (horizon steps ahead): "
+                            f"[RF] predicted ({horizon} steps ahead): "
                             f"IAQ={preds.get('iaq'):.2f}, "
                             f"T={preds.get('temperature'):.2f}, "
                             f"eCO2={preds.get('eCO2'):.2f}, "
                             f"CO={preds.get('co'):.2f}, "
                             f"PM2.5={preds.get('pm2_5'):.2f}"
                         )
-                    else:
-                        # Backward-compat if model is single-target and returns float
-                        print(f"[RF] predicted IAQ ({horizon} steps ahead): {float(preds):.2f}")
                         prow = {
                             "timestamp" : now_string(),
                             "iaq" : preds.get('iaq'),
@@ -465,6 +462,9 @@ def main() -> None:
                             "pm2_5" : preds.get('pm2_5')
                         }
                         append_csv(prow, PRED_CSV_PATH, PRED_CSV_FIELDS)
+                    else:
+                        # Backward-compat if model is single-target and returns float
+                        print(f"[RF] predicted IAQ ({horizon} steps ahead): {float(preds):.2f}")
 
                 except Exception as e:
                     print(f"[RF] prediction skipped/failed: {e}")
