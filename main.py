@@ -35,6 +35,7 @@ ERROR_PATH = BASE_DIR / "error.txt"
 
 RF_MODEL_PATH = BASE_DIR / "rf_model.joblib"
 RF_META_PATH = BASE_DIR / "rf_meta.json"
+PRED_CSV_PATH = BASE_DIR / "predictions.csv"
 
 CSV_FIELDS = [
     "timestamp",
@@ -52,9 +53,18 @@ CSV_FIELDS = [
     "mq2",
     "co",
 ]
+PRED_CSV_FIELDS = [
+    "timestamp",
+    "iaq",
+    "temperature",
+    "eCO2",
+    "co",
+    "pm2_5"
+]
 
 
 def train_rf_once_at_boot() -> None:
+    global horizon
     """
     Train exactly once when the program boots.
     Never call this inside the main loop.
@@ -113,20 +123,20 @@ def write_error_file(messages: list[str]) -> None:
     ERROR_PATH.write_text("".join(text) + "", encoding="utf-8")
 
 
-def ensure_csv_exists() -> None:
-    if CSV_PATH.exists():
+def ensure_csv_exists(_PATH, _FIELDS) -> None:
+    if _PATH.exists():
         return
 
-    with CSV_PATH.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+    with _PATH.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=_FIELDS)
         writer.writeheader()
 
 
-def append_csv(row: dict[str, Any]) -> None:
-    ensure_csv_exists()
-    clean_row = {field: row.get(field, "") for field in CSV_FIELDS}
-    with CSV_PATH.open("a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CSV_FIELDS)
+def append_csv(row: dict[str, Any], _PATH, _FIELDS) -> None:
+    ensure_csv_exists(_PATH, _FIELDS)
+    clean_row = {field: row.get(field, "") for field in _FIELDS}
+    with _PATH.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=_FIELDS)
         writer.writerow(clean_row)
         f.flush()
         os.fsync(f.fileno())
@@ -415,7 +425,7 @@ def main() -> None:
                 row["cycle"] = cycle
                 row["status"] = status
                 #row["notes"] = notes
-                append_csv(row)
+                append_csv(row, CSV_PATH, CSV_FIELDS)
                 print(row)
 
                 print(f"[{row['timestamp']}] cycle={cycle} status={status}")
@@ -445,7 +455,16 @@ def main() -> None:
                         )
                     else:
                         # Backward-compat if model is single-target and returns float
-                        print(f"[RF] predicted IAQ (horizon steps ahead): {float(preds):.2f}")
+                        print(f"[RF] predicted IAQ ({horizon} steps ahead): {float(preds):.2f}")
+                        prow = {
+                            "timestamp" : now_string(),
+                            "iaq" : preds.get('iaq'),
+                            "temperature" : preds.get('temperature'),
+                            "eCO2" : preds.get('eCO2'),
+                            "co": preds.get('co'),
+                            "pm2_5" : preds.get('pm2_5')
+                        }
+                        append_csv(prow, PRED_CSV_PATH, PRED_CSV_FIELDS)
 
                 except Exception as e:
                     print(f"[RF] prediction skipped/failed: {e}")
