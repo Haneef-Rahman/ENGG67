@@ -46,6 +46,7 @@ error.txt
 # (sensor logs are usually not source code)
 # -----------------------
 data.csv
+predictions.csv
 
 # -----------------------
 # ML artifacts (trained models)
