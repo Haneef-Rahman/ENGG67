@@ -454,7 +454,7 @@ def main() -> None:
                             f"PM2.5={preds.get('pm2_5'):.2f}"
                         )
                         prow = {
-                            "timestamp" : now_string(),
+                            "timestamp" : row["timestamp"],
                             "iaq" : preds.get('iaq'),
                             "temperature" : preds.get('temperature'),
                             "eCO2" : preds.get('eCO2'),
