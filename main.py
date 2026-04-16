@@ -62,7 +62,7 @@ PRED_CSV_FIELDS = [
     "pm2_5"
 ]
 
-
+horizon=15
 def train_rf_once_at_boot() -> None:
     global horizon
     """
