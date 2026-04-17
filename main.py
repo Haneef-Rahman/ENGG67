@@ -74,7 +74,7 @@ def train_rf_once_at_boot() -> None:
             CSV_PATH,
 
             # Use more rows if you have them; helps training stability
-            n_rows=1300,
+            n_rows=2800,
 
             # Make these match your real intent:
             # If you want 15 steps ahead, set horizon=15.
